@@ -28,15 +28,38 @@
     [string regex]
     (def split_result (str/split string regex))
     (if (= (count split_result) 1)
-      (println "********\nERRO LENDO SELECT\n********")
-    )
+      ; return nil
+      ; (println "********\nERRO LENDO SELECT\n********")
+      nil
 
-    (def consumed_part (nth split_result 0))
-    (def match_char (nth string (count consumed_part)))
-    (def not_consumed_part (subs string (inc (count consumed_part))))
-    ; (println (str \' consumed_part \'))
-    ; (println match_char)
-    (list consumed_part match_char not_consumed_part)
+      (do
+        (def consumed_part (nth split_result 0))
+        (def match_char (nth string (count consumed_part)))
+        (def not_consumed_part (subs string (inc (count consumed_part))))
+        ; (println (str \' consumed_part \'))
+        ; (println match_char)
+        (list consumed_part match_char not_consumed_part)
+      )
+    )
+  )
+)
+
+(defn consume_string_until_conditions2
+  (
+    [string]
+    (consume_string_until_conditions string #"(?i)(.*?)([\,\"\(\)]|\bFROM\b)")
+  )
+
+  (
+    [string regex]
+    (def split_result (str/split string regex))
+
+    (let [[match consumed stop] (re-find regex string)]
+      (if (nil? match)
+        match
+        (list consumed stop (subs string (count match)))
+      )
+    )
   )
 )
 
@@ -73,7 +96,7 @@
   (
     loop [fields '() remaining_query removed_select_query]
     (if (str/starts-with? (str/lower-case remaining_query) "from")
-      fields
+      (list fields remaining_query)
       (let [[new_field, remaining_query] (get_select_field remaining_query)]
         (recur (concat fields [new_field]) remaining_query)
       )
@@ -94,10 +117,71 @@
   )
 )
 
+(defn remove_function_calls
+  [string]
+  (str/replace string #"\w+\s*(?=\()" "")
+)
+
+(def select_keywords '("case" "when" "end" "then" "else"))
+; (def select_keywords_regex (re-pattern (str "(?i)(" (str/join "|" (map #(str "(\\W|^)" % "(?=(\\W|$))") select_keywords)) ")")))
+(def select_keywords_regex (re-pattern (str "(?i)(" (str/join "|" (map #(str "\\b" % "\\b") select_keywords)) ")")))
+(println select_keywords_regex)
+
+(defn remove_sql_keywords
+  [string]
+  (str/trim (str/replace string select_keywords_regex ""))
+)
+
+(defn remove_sql_strings
+  [string]
+  (loop [cleaned_str "" remaining_string string]
+    (let [[first_consumed first_match_char first_not_consumed] (consume_string_until_conditions remaining_string #"\"")]
+
+      (if (nil? first_consumed)
+        (str cleaned_str remaining_string)
+        (let [[second_consumed second_match_char second_not_consumed] (consume_string_until_conditions first_not_consumed #"\"")]
+          ; (println cleaned_str "||" first_consumed)
+          ; (println second_consumed "||" second_not_consumed)
+          (recur (str cleaned_str first_consumed) (str second_not_consumed))
+        )
+      )
+    )
+  )
+)
+
+(defn get_used_table_fields
+  [select_expr]
+  (let [cleaned_expr (remove_function_calls (remove_sql_keywords (remove_sql_strings select_expr)))]
+    (re-seq #"(?i)[a-z][\w\.]*" cleaned_expr)
+  )
+)
+
+(defn separate_table_from_column
+  [string]
+  (let [string_parts (str/split string #"\.")]
+    (cond
+      (= (count string_parts) 1)
+        nil
+      :else
+        {:table (str/join "." (butlast string_parts))
+         :column (last string_parts)
+        }
+    )
+  )
+)
+
 (defn get_select_map
   "returns a map with {field_name field_expr}"
   [query]
-  
+  (def fields (map separate_field_expression (nth (get_select_fields query) 0)))
+
+  (reduce 
+    (fn
+      [select_map [field_exp field_name]]
+      (assoc select_map field_name field_exp)
+    ) 
+    {} fields
+  )
 )
 
 (defn -main
@@ -107,7 +191,7 @@
   (def queries (str/split (slurp query_filename) #";"))
 
   ; test
-  (def original_query (nth queries 1))
+  (def original_query (nth queries 0))
   
   (def cleaned_query (str/trim (collapse_white_space (remove_comments original_query))))
 
@@ -119,13 +203,33 @@
   ;   (nth (get_select_field cleaned_query) 0)
   ; )
   ; (println (get_select_map cleaned_query))
-  (def select_fields (get_select_fields cleaned_query))
+  (def select_fields (nth (get_select_fields cleaned_query) 0))
+  (def query_after_from (nth (get_select_fields cleaned_query) 1))
   (dorun (map #(println %) select_fields))
 
   (println "\n=== parse select fields ===")
-  (def test_field (nth select_fields 0))
-  (println test_field)
-  (println (separate_field_expression test_field))
+  (def test_field (nth select_fields 3))
+  ; (println test_field)
+
+  (def test_expr (nth (separate_field_expression test_field) 0))
+  ; (println (get_used_table_fields test_expr))
+
+  (println (map separate_table_from_column (get_used_table_fields test_expr)))
+
+  (println "\n=== parse from and joins ===")
+  (println query_after_from)
+
+  (def from_regex #"(?i)(.*?)(JOIN|INNER JOIN|LEFT JOIN|RIGHT JOIN|OUTER JOIN|WHERE|GROUP BY|LIMIT)")
+  (def return1 (consume_string_until_conditions2 query_after_from from_regex))
+  (println "match:" (nth return1 1))
+  (def return2 (consume_string_until_conditions2 (nth return1 2) from_regex))
+  (println "match:" (nth return2 1))
+  
   
 
+  ; (println (remove_sql_strings "yayay \\o/\"tem q sair\" naynay\"esse tb\""))
+  ; (println (remove_sql_keywords "case when pc.is_private_label then 1 when pc.is_crossdocking then 1 else 1 end"))
+
+  ; (println "\n=== final map ===")
+  ; (println (get_select_map cleaned_query))
 )

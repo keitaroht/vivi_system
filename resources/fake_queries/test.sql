@@ -5,6 +5,13 @@ SELECT
 	"yay" as nothing,
 
 	pc.gross_cost * (1 - pc.vat_out) as net_cost,
+	case 
+		when pc.is_private_label then "PL"
+		when pc.is_crossdocking then "XDOC" 
+		when 1+1=3 then "ERRO!"
+		when 1+1=4 then concat("AINDA MAIS", " ERRO! ", "CASE WHEN ERRADO!!!")
+		else "BR"
+	end as yay,
 
 	ps.sku_simple,
 	-- ps.sku_simple,
