@@ -4,6 +4,20 @@
 
 (def query_filename "resources/fake_queries/test.sql")
 
+(defn make_regex_for_keywords
+  (
+    [keywords]
+    (make_regex_for_keywords keywords false)
+  )
+  (
+    [keywords match_before]
+    (if match_before
+      (re-pattern (str "(?i)(.*?)(" (str/join "|" (map #(str "\\b" % "\\b") keywords)) ")"))
+      (re-pattern (str "(?i)(" (str/join "|" (map #(str "\\b" % "\\b") keywords)) ")"))
+    )
+  )
+)
+
 (defn remove_comments
   [query]
   (str/replace (str/replace query #"(?s)/\*.*?\*/" "") #"--.*" "")
@@ -94,9 +108,7 @@
   (str/replace string #"\w+\s*(?=\()" "")
 )
 
-(def select_keywords '("case" "when" "end" "then" "else"))
-; (def select_keywords_regex (re-pattern (str "(?i)(" (str/join "|" (map #(str "(\\W|^)" % "(?=(\\W|$))") select_keywords)) ")")))
-(def select_keywords_regex (re-pattern (str "(?i)(" (str/join "|" (map #(str "\\b" % "\\b") select_keywords)) ")")))
+(def select_keywords_regex (make_regex_for_keywords '("case" "when" "end" "then" "else")))
 (println select_keywords_regex)
 
 (defn remove_sql_keywords
@@ -191,10 +203,12 @@
   (println "\n=== parse from and joins ===")
   (println query_after_from)
 
-  (def from_regex #"(?i)(.*?)(JOIN|INNER JOIN|LEFT JOIN|RIGHT JOIN|OUTER JOIN|WHERE|GROUP BY|LIMIT)")
-  (def return1 (consume_string_until_conditions query_after_from from_regex))
+  ; (def  #"(?i)(.*?)(JOIN|INNER JOIN|LEFT JOIN|RIGHT JOIN|OUTER JOIN|WHERE|GROUP BY|LIMIT)")
+  (def from_keywords_regex (make_regex_for_keywords '("JOIN" "INNER JOIN" "LEFT JOIN" "RIGHT JOIN" "OUTER JOIN" "WHERE" "GROUP BY" "LIMIT" ) true))
+
+  (def return1 (consume_string_until_conditions query_after_from from_keywords_regex))
   (println "match:" (nth return1 1))
-  (def return2 (consume_string_until_conditions (nth return1 2) from_regex))
+  (def return2 (consume_string_until_conditions (nth return1 2) from_keywords_regex))
   (println "match:" (nth return2 1))
 
 
